@@ -1,0 +1,323 @@
+import { useState, useEffect, useRef } from 'react'
+import { supabase } from '../lib/supabase'
+import { useAuth } from '../hooks/useAuth'
+
+export default function Productos() {
+  const { comercio } = useAuth()
+  const [productos, setProductos] = useState([])
+  const [categorias, setCategorias] = useState([])
+  const [cargando, setCargando] = useState(true)
+  const [modalAbierto, setModalAbierto] = useState(false)
+  const [productoEditar, setProductoEditar] = useState(null)
+  const [busqueda, setBusqueda] = useState('')
+  const [filtroCategoria, setFiltroCategoria] = useState('')
+
+  useEffect(() => {
+    if (comercio) { cargarProductos(); cargarCategorias() }
+  }, [comercio])
+
+  async function cargarProductos() {
+    setCargando(true)
+    const { data } = await supabase
+      .from('productos')
+      .select('*, categorias(nombre, icono), stock_movimientos(tipo, cantidad)')
+      .eq('comercio_id', comercio.id)
+      .eq('activo', true)
+      .order('nombre')
+    setProductos(data || [])
+    setCargando(false)
+  }
+
+  async function cargarCategorias() {
+    const { data } = await supabase.from('categorias').select('*').order('nombre')
+    setCategorias(data || [])
+  }
+
+  function calcularStock(movimientos) {
+    return (movimientos || []).reduce((sum, m) =>
+      sum + (m.tipo === 'entrada' ? m.cantidad : -m.cantidad), 0)
+  }
+
+  const productosFiltrados = productos.filter(p => {
+    const matchBusqueda = p.nombre.toLowerCase().includes(busqueda.toLowerCase())
+    const matchCategoria = !filtroCategoria || p.categoria_id === filtroCategoria
+    return matchBusqueda && matchCategoria
+  })
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+
+      {/* Buscador y filtros */}
+      <div style={{ display: 'flex', gap: '8px' }}>
+        <input
+          placeholder="🔍 Buscar producto..."
+          value={busqueda} onChange={e => setBusqueda(e.target.value)}
+          style={{
+            flex: 1, padding: '10px 12px', border: '1px solid var(--border)',
+            borderRadius: 'var(--radius)', fontSize: '14px', background: 'var(--surface)',
+            color: 'var(--text)', outline: 'none'
+          }}
+        />
+        <button onClick={() => { setProductoEditar(null); setModalAbierto(true) }}
+          style={{
+            padding: '10px 16px', background: 'var(--accent)', color: 'white',
+            border: 'none', borderRadius: 'var(--radius)', fontSize: '14px',
+            fontWeight: '500', whiteSpace: 'nowrap'
+          }}>
+          + Nuevo
+        </button>
+      </div>
+
+      {/* Filtro categorías */}
+      <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '4px' }}>
+        <button onClick={() => setFiltroCategoria('')}
+          style={{
+            padding: '5px 12px', border: '1px solid var(--border)',
+            borderRadius: '20px', background: !filtroCategoria ? 'var(--accent)' : 'var(--surface)',
+            color: !filtroCategoria ? 'white' : 'var(--text-sec)',
+            fontSize: '12px', whiteSpace: 'nowrap', flexShrink: 0
+          }}>
+          Todos
+        </button>
+        {categorias.map(c => (
+          <button key={c.id} onClick={() => setFiltroCategoria(c.id)}
+            style={{
+              padding: '5px 12px', border: '1px solid var(--border)',
+              borderRadius: '20px',
+              background: filtroCategoria === c.id ? 'var(--accent)' : 'var(--surface)',
+              color: filtroCategoria === c.id ? 'white' : 'var(--text-sec)',
+              fontSize: '12px', whiteSpace: 'nowrap', flexShrink: 0
+            }}>
+            {c.icono} {c.nombre}
+          </button>
+        ))}
+      </div>
+
+      {/* Lista de productos */}
+      {cargando ? (
+        <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>Cargando...</div>
+      ) : productosFiltrados.length === 0 ? (
+        <div style={{ background: 'var(--surface)', borderRadius: 'var(--radius)', padding: '28px 20px', border: '1px solid var(--border)', textAlign: 'center' }}>
+          <div style={{ fontSize: '32px', marginBottom: '10px' }}>📦</div>
+          <div style={{ fontSize: '15px', fontWeight: '500', color: 'var(--text)', marginBottom: '6px' }}>
+            {busqueda ? 'No encontramos ese producto' : 'Todavía no tenés productos'}
+          </div>
+          <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+            {busqueda ? 'Probá con otro nombre' : 'Tocá "+ Nuevo" para agregar el primero'}
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {productosFiltrados.map(p => {
+            const stock = calcularStock(p.stock_movimientos)
+            const margen = p.precio_venta > 0
+              ? Math.round(((p.precio_venta - p.precio_costo) / p.precio_venta) * 100)
+              : 0
+            return (
+              <div key={p.id}
+                onClick={() => { setProductoEditar(p); setModalAbierto(true) }}
+                style={{
+                  background: 'var(--surface)', borderRadius: 'var(--radius)',
+                  padding: '14px', border: '1px solid var(--border)',
+                  display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer'
+                }}>
+                <div style={{
+                  width: '40px', height: '40px', borderRadius: '8px',
+                  background: 'var(--bg)', display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', fontSize: '20px', flexShrink: 0
+                }}>
+                  {p.categorias?.icono || '📦'}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: '14px', fontWeight: '500', color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {p.nombre}
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    {p.categorias?.nombre} · Margen {margen}%
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                  <div style={{ fontSize: '14px', fontWeight: '500', color: 'var(--text)' }}>
+                    ${Number(p.precio_venta).toLocaleString('es-AR')}
+                  </div>
+                  <div style={{
+                    fontSize: '11px', marginTop: '2px',
+                    color: stock <= 0 ? 'var(--danger)' : stock <= 5 ? 'var(--warning)' : 'var(--success)'
+                  }}>
+                    {stock <= 0 ? 'Sin stock' : `${stock} en stock`}
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Modal agregar/editar */}
+      {modalAbierto && (
+        <ModalProducto
+          producto={productoEditar}
+          categorias={categorias}
+          comercioId={comercio.id}
+          onClose={() => setModalAbierto(false)}
+          onGuardado={() => { setModalAbierto(false); cargarProductos() }}
+        />
+      )}
+    </div>
+  )
+}
+
+function ModalProducto({ producto, categorias, comercioId, onClose, onGuardado }) {
+  const [form, setForm] = useState({
+    nombre: producto?.nombre || '',
+    categoria_id: producto?.categoria_id || '',
+    codigo_barras: producto?.codigo_barras || '',
+    precio_costo: producto?.precio_costo || '',
+    precio_venta: producto?.precio_venta || '',
+    unidad: producto?.unidad || 'unidad',
+  })
+  const [stockInicial, setStockInicial] = useState('')
+  const [cargando, setCargando] = useState(false)
+  const [error, setError] = useState('')
+
+  async function guardar() {
+    if (!form.nombre.trim()) { setError('El nombre es obligatorio'); return }
+    setError(''); setCargando(true)
+
+    try {
+      if (producto) {
+        // Editar
+        const { error } = await supabase.from('productos')
+          .update({ ...form, precio_costo: Number(form.precio_costo), precio_venta: Number(form.precio_venta) })
+          .eq('id', producto.id)
+        if (error) throw error
+      } else {
+        // Crear
+        const { data, error } = await supabase.from('productos')
+          .insert({ ...form, comercio_id: comercioId, precio_costo: Number(form.precio_costo), precio_venta: Number(form.precio_venta) })
+          .select().single()
+        if (error) throw error
+
+        // Registrar stock inicial si hay
+        if (stockInicial && Number(stockInicial) > 0) {
+          await supabase.from('stock_movimientos').insert({
+            producto_id: data.id,
+            tipo: 'entrada',
+            cantidad: Number(stockInicial),
+            origen: 'manual',
+            nota: 'Stock inicial'
+          })
+        }
+      }
+      onGuardado()
+    } catch (e) {
+      setError('Error al guardar. Intentá de nuevo.')
+      setCargando(false)
+    }
+  }
+
+  async function eliminar() {
+    if (!confirm('¿Seguro que querés eliminar este producto?')) return
+    await supabase.from('productos').update({ activo: false }).eq('id', producto.id)
+    onGuardado()
+  }
+
+  const inputStyle = {
+    width: '100%', padding: '10px 12px', border: '1px solid var(--border)',
+    borderRadius: 'var(--radius)', fontSize: '14px', background: 'var(--bg)',
+    color: 'var(--text)', outline: 'none'
+  }
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+      zIndex: 200, display: 'flex', alignItems: 'flex-end'
+    }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{
+        background: 'var(--surface)', borderRadius: '16px 16px 0 0',
+        padding: '20px 20px 32px', width: '100%', maxHeight: '90vh',
+        overflowY: 'auto'
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <h3 style={{ fontSize: '17px', fontWeight: '600' }}>
+            {producto ? 'Editar producto' : 'Nuevo producto'}
+          </h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '20px', color: 'var(--text-muted)' }}>✕</button>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div>
+            <label style={{ fontSize: '12px', color: 'var(--text-sec)', fontWeight: '500', display: 'block', marginBottom: '6px' }}>Nombre del producto *</label>
+            <input style={inputStyle} placeholder="Ej: Coca-Cola 500ml"
+              value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} />
+          </div>
+
+          <div>
+            <label style={{ fontSize: '12px', color: 'var(--text-sec)', fontWeight: '500', display: 'block', marginBottom: '6px' }}>Categoría</label>
+            <select style={inputStyle} value={form.categoria_id}
+              onChange={e => setForm({ ...form, categoria_id: e.target.value })}>
+              <option value="">Sin categoría</option>
+              {categorias.map(c => <option key={c.id} value={c.id}>{c.icono} {c.nombre}</option>)}
+            </select>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+            <div>
+              <label style={{ fontSize: '12px', color: 'var(--text-sec)', fontWeight: '500', display: 'block', marginBottom: '6px' }}>Precio costo</label>
+              <input style={inputStyle} type="number" placeholder="0"
+                value={form.precio_costo} onChange={e => setForm({ ...form, precio_costo: e.target.value })} />
+            </div>
+            <div>
+              <label style={{ fontSize: '12px', color: 'var(--text-sec)', fontWeight: '500', display: 'block', marginBottom: '6px' }}>Precio venta</label>
+              <input style={inputStyle} type="number" placeholder="0"
+                value={form.precio_venta} onChange={e => setForm({ ...form, precio_venta: e.target.value })} />
+            </div>
+          </div>
+
+          {form.precio_costo > 0 && form.precio_venta > 0 && (
+            <div style={{ background: 'var(--success-light)', borderRadius: '8px', padding: '10px 12px', fontSize: '12px', color: 'var(--success)' }}>
+              Margen: {Math.round(((form.precio_venta - form.precio_costo) / form.precio_venta) * 100)}% · Ganancia por unidad: ${(form.precio_venta - form.precio_costo).toLocaleString('es-AR')}
+            </div>
+          )}
+
+          <div>
+            <label style={{ fontSize: '12px', color: 'var(--text-sec)', fontWeight: '500', display: 'block', marginBottom: '6px' }}>Código de barras (opcional)</label>
+            <input style={inputStyle} placeholder="Escaneá o escribí el código"
+              value={form.codigo_barras} onChange={e => setForm({ ...form, codigo_barras: e.target.value })} />
+          </div>
+
+          {!producto && (
+            <div>
+              <label style={{ fontSize: '12px', color: 'var(--text-sec)', fontWeight: '500', display: 'block', marginBottom: '6px' }}>Stock inicial (opcional)</label>
+              <input style={inputStyle} type="number" placeholder="¿Cuántas unidades tenés ahora?"
+                value={stockInicial} onChange={e => setStockInicial(e.target.value)} />
+            </div>
+          )}
+
+          {error && (
+            <div style={{ background: 'var(--danger-light)', borderRadius: '8px', padding: '10px 12px', fontSize: '13px', color: 'var(--danger)' }}>
+              {error}
+            </div>
+          )}
+
+          <button onClick={guardar} disabled={cargando}
+            style={{
+              width: '100%', padding: '13px',
+              background: cargando ? 'var(--border)' : 'var(--accent)',
+              color: cargando ? 'var(--text-muted)' : 'white',
+              border: 'none', borderRadius: 'var(--radius)', fontSize: '14px', fontWeight: '500'
+            }}>
+            {cargando ? 'Guardando...' : producto ? 'Guardar cambios' : 'Agregar producto'}
+          </button>
+
+          {producto && (
+            <button onClick={eliminar}
+              style={{ width: '100%', padding: '12px', background: 'none', color: 'var(--danger)', border: '1px solid var(--danger)', borderRadius: 'var(--radius)', fontSize: '14px' }}>
+              Eliminar producto
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
